@@ -10,7 +10,7 @@ pub enum TorrentError {
 }
 
 #[derive(Debug, PartialEq)]
-struct Torrent {
+struct BencodeTorrent {
     pub announce: String,
     pub name: String,
     pub length: i64,
@@ -18,61 +18,50 @@ struct Torrent {
     pub pieces: Vec<u8>,
 }
 
-impl Torrent {
-    pub fn from_bytes(bytes: &[u8]) -> Result<Torrent, TorrentError> {
+impl BencodeTorrent {
+    pub fn from_bytes(bytes: &[u8]) -> Result<BencodeTorrent, TorrentError> {
+        static ANNOUNCE_KEY: &'static [u8] = "announce".as_bytes();
+        static INFO_KEY: &'static [u8] = "info".as_bytes();
+        static NAME_KEY: &'static [u8] = "name".as_bytes();
+        static LENGTH_KEY: &'static [u8] = "length".as_bytes();
+        static PIECE_LENGTH_KEY: &'static [u8] = "piece length".as_bytes();
+        static PIECES_KEY: &'static [u8] = "pieces".as_bytes();
+
         let parsed = bencode::from_bytes(bytes)
             .map(|parsed| parsed.1)
             .map_err(|err| TorrentError::InvalidInput)?;
 
-        let announce_key = "announce".as_bytes();
-        let info_key = "info".as_bytes();
-        let name_key = "name".as_bytes();
-        let length_key = "length".as_bytes();
-        let piece_length_key = "piece length".as_bytes();
-        let pieces_key = "pieces".as_bytes();
+        if_chain! {
+            if let BencodeValue::Dict(dict) = parsed;
+            if let BencodeValue::ByteString(announce) = get_key(&dict, ANNOUNCE_KEY)?;
+            if let BencodeValue::Dict(info_dict) =  get_key(&dict, INFO_KEY)?;
+            if let BencodeValue::ByteString(name) = get_key(&info_dict, NAME_KEY)?;
+            if let BencodeValue::Integer(length) = get_key(&info_dict, LENGTH_KEY)?;
+            if let BencodeValue::Integer(piece_length) = get_key(&info_dict, PIECE_LENGTH_KEY)?;
+            if let BencodeValue::ByteString(pieces) = get_key(&info_dict, PIECES_KEY)?;
 
-        match parsed {
-            BencodeValue::Dict(dict) => {
-                let mut torrent = Torrent { announce: "".to_string(), name: "".to_string(), length: 0, piece_length: 0, pieces: vec![] };
+            then {
+                Ok(BencodeTorrent {
+                    announce: std::str::from_utf8(announce).unwrap().to_string(),
+                    name: std::str::from_utf8(name).unwrap().to_string(),
+                    length: *length,
+                    piece_length: *piece_length,
+                    pieces: pieces.to_vec() })
 
-                for (key, value) in dict.iter() {
-                    match (key, value) {
-                        (BencodeValue::ByteString(bkey), BencodeValue::ByteString(bvalue)) if bkey == &announce_key =>
-                            torrent.announce = std::str::from_utf8(bvalue).unwrap().to_string(),
-
-                        (BencodeValue::ByteString(bkey), BencodeValue::Dict(bdict)) if bkey == &info_key => {
-                            for (ikey, ivalue) in bdict.iter() {
-                                match (ikey, ivalue) {
-                                    (BencodeValue::ByteString(k), BencodeValue::ByteString(v)) if k == &name_key =>
-                                        torrent.name = std::str::from_utf8(v).unwrap().to_string(),
-
-                                    (BencodeValue::ByteString(k), BencodeValue::Integer(v)) if k == &length_key =>
-                                        torrent.length = *v,
-
-                                    (BencodeValue::ByteString(k), BencodeValue::Integer(v)) if k == &piece_length_key =>
-                                        torrent.piece_length = *v,
-
-                                    (BencodeValue::ByteString(k), BencodeValue::ByteString(v)) if k == &pieces_key =>
-                                        torrent.pieces = v.to_vec(),
-                                    _ => {}
-                                }
-                            }
-                        }
-
-                        _ => {}
-                    }
-                }
-                Ok(torrent)
+            } else {
+                Err(TorrentError::InvalidInput)?
             }
-
-            _ => Err(TorrentError::InvalidInput)?
         }
     }
 }
 
+fn get_key<'a>(dict: &'a HashMap<&[u8], BencodeValue<'a>>, key: &'static [u8]) -> Result<&'a BencodeValue<'a>, TorrentError> {
+    dict.get(key).ok_or(TorrentError::InvalidInput)
+}
+
 #[cfg(test)]
 mod test {
-    use crate::torrent::{Torrent, TorrentError};
+    use crate::torrent::{BencodeTorrent, TorrentError};
 
     #[test]
     fn parse_torrent() -> Result<(), TorrentError> {
@@ -80,7 +69,7 @@ mod test {
         let input = include_bytes!("../resources/archlinux-2020.06.01-x86_64.iso.torrent");
 
         //when
-        let torrent = Torrent::from_bytes(input)?;
+        let torrent = BencodeTorrent::from_bytes(input)?;
 
         //then
         assert_eq!(torrent.announce, "http://tracker.archlinux.org:6969/announce".to_string());

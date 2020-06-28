@@ -7,6 +7,8 @@ use nom::{
     branch::alt,
     error::{ErrorKind, ParseError},
     Err::{Failure}};
+use nom::multi::fold_many0;
+use nom::lib::std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug, PartialEq)]
 pub enum BencodeParserError<'a> {
@@ -45,12 +47,12 @@ pub fn from_bytes(input: &[u8]) -> BencodeParserResult {
     BencodeParserBytes { input }.parse()
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum BencodeValue<'a> {
     Integer(i64),
     ByteString(&'a [u8]),
     List(Vec<BencodeValue<'a>>),
-    Dict(Vec<(BencodeValue<'a>, BencodeValue<'a>)>),
+    Dict(HashMap<&'a [u8], BencodeValue<'a>>),
 }
 
 fn bytes_to_i64(bytes: &[u8]) -> Result<i64, Err<BencodeParserError>> {
@@ -87,17 +89,28 @@ fn parse_list(input: &[u8]) -> BencodeParserResult {
 }
 
 fn parse_dict(input: &[u8]) -> BencodeParserResult {
-    let kv_parser = tuple((parse_byte_string, parse));
-    let (input, xs): (&[u8], Vec<(BencodeValue, BencodeValue)>) = delimited(tag("d"), many0(kv_parser), tag("e"))(input)?;
-    Ok((input, BencodeValue::Dict(xs)))
-}
+    let kv_parser = fold_many0(tuple((parse_byte_string, parse)), HashMap::new(),
+                               |mut acc: HashMap<&[u8], BencodeValue>, (key, value)| {
+                                   match key {
+                                       BencodeValue::ByteString(bs) => {
+                                           acc.insert(bs, value.clone());
+                                           acc
+                                       }
+                                       _ => acc
+                                   }
+                               });
 
+    let (input, dict): (&[u8], HashMap<&[u8], BencodeValue>) = delimited(tag("d"), kv_parser, tag("e"))(input)?;
+    Ok((input, BencodeValue::Dict(dict)))
+}
 
 #[cfg(test)]
 mod tests {
     use crate::bencode::{BencodeValue, BencodeParserError, from_bytes};
     use nom::Err::{Failure};
     use nom::sequence::delimited;
+    use nom::lib::std::collections::BTreeMap;
+    use std::collections::HashMap;
 
     #[test]
     fn parse_integer() {
@@ -158,13 +171,17 @@ mod tests {
         let result = from_bytes(input);
 
         //then
-        let key1 = BencodeValue::ByteString("bar".as_bytes());
+        let key1 = "bar".as_bytes();
         let val1 = BencodeValue::ByteString("spam".as_bytes());
 
-        let key2 = BencodeValue::ByteString("foo".as_bytes());
+        let key2 = "foo".as_bytes();
         let val2 = BencodeValue::Integer(42i64);
 
-        assert_eq!(result, Ok(("".as_bytes(), BencodeValue::Dict(vec![(key1, val1), (key2, val2)]))))
+        let mut map = HashMap::new();
+        map.insert(key1, val1);
+        map.insert(key2, val2);
+
+        assert_eq!(result, Ok(("".as_bytes(), BencodeValue::Dict(map))))
     }
 
     #[test]
