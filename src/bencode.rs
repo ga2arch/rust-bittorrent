@@ -75,7 +75,7 @@ fn parse_integer(input: &[u8]) -> BencodeParserResult {
 fn parse_byte_string(input: &[u8]) -> BencodeParserResult {
     let (input, (len, _)) = tuple((is_not(":ilde"), tag(":")))(input)?;
     let len = bytes_to_i64(len)?;
-    if len > 0 {
+    if len >= 0 {
         let (input, byte_string) = take(len as u64)(input)?;
         Ok((input, BencodeValue::ByteString(byte_string)))
     } else {
