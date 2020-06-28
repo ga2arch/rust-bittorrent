@@ -62,8 +62,6 @@ impl Torrent {
             .map(|parsed| parsed.1)
             .map_err(|err| TorrentError::InvalidInput)?;
 
-        let sub = bytes.find_substring("4:info").ok_or(TorrentError::InvalidInput)?;
-
         if_chain! {
             if let BencodeValue::Dict(dict) = parsed;
             if let BencodeValue::ByteString(announce) = get_key(&dict, ANNOUNCE_KEY)?;
