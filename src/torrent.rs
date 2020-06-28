@@ -8,19 +8,44 @@ use nom::{FindSubstring, InputTake};
 use sha1::{Sha1, Digest};
 use hex_literal::hex;
 use indexmap::map::IndexMap;
+use core::fmt;
+use nom::lib::std::fmt::Formatter;
+use std::error::Error;
 
 #[derive(Debug, PartialEq)]
 pub enum TorrentError {
     InvalidInput
 }
 
+impl fmt::Display for TorrentError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            TorrentError::InvalidInput => write!(f, "{}", "invalid input")
+        }
+    }
+}
+
+impl Error for TorrentError {}
+
 #[derive(Debug, PartialEq)]
-struct Torrent {
-    pub announce: String,
+pub struct AnnounceUrl(pub String);
+
+#[derive(Debug, PartialEq)]
+pub struct InfoHash(pub Vec<u8>);
+
+impl fmt::Display for InfoHash {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", hex::encode(self.0.as_slice()))
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Torrent {
+    pub announce: AnnounceUrl,
     pub name: String,
     pub length: i64,
     pub piece_length: i64,
-    pub info_hash: Vec<u8>,
+    pub info_hash: InfoHash,
     pieces: Vec<u8>,
 }
 
@@ -51,11 +76,11 @@ impl Torrent {
 
             then {
                 Ok(Torrent {
-                    announce: std::str::from_utf8(announce).unwrap().to_string(),
+                    announce: AnnounceUrl(std::str::from_utf8(announce).unwrap().to_string()),
                     name: std::str::from_utf8(name).unwrap().to_string(),
                     length: *length,
                     piece_length: *piece_length,
-                    info_hash: build_info_hash(bencode::to_bytes(&wrapped_info_dict).as_slice()),
+                    info_hash: InfoHash(build_info_hash(bencode::to_bytes(&wrapped_info_dict).as_slice())),
                     pieces: pieces.to_vec() })
 
             } else {
@@ -81,7 +106,7 @@ fn build_info_hash(info_dict: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod test {
-    use crate::torrent::{Torrent, TorrentError};
+    use crate::torrent::{Torrent, TorrentError, AnnounceUrl, InfoHash};
 
     #[test]
     fn parse_torrent() -> Result<(), TorrentError> {
@@ -92,12 +117,25 @@ mod test {
         let torrent = Torrent::from_bytes(input)?;
 
         //then
-        assert_eq!(torrent.announce, "http://tracker.archlinux.org:6969/announce".to_string());
+        assert_eq!(torrent.announce, AnnounceUrl("http://tracker.archlinux.org:6969/announce".to_string()));
         assert_eq!(torrent.name, "archlinux-2020.06.01-x86_64.iso".to_string());
         assert_eq!(torrent.length, 694157312);
         assert_eq!(torrent.piece_length, 524288);
         assert_eq!(torrent.pieces().count(), (torrent.length / torrent.piece_length) as usize);
-        assert_eq!(torrent.info_hash, hex!("e79d1fac0e60598bf0f1133487852d81cf716ced"));
+        assert_eq!(torrent.info_hash, InfoHash(hex!("e79d1fac0e60598bf0f1133487852d81cf716ced").to_vec()));
         Ok(())
+    }
+
+    #[test]
+    fn info_hash_to_string() {
+        //given+
+        let hash = "e79d1fac0e60598bf0f1133487852d81cf716ced";
+        let info_hash = InfoHash(hex::decode(hash).unwrap());
+
+        //when
+        let result = info_hash.to_string();
+
+        //then
+        assert_eq!(result, hash);
     }
 }

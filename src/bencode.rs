@@ -145,10 +145,11 @@ pub fn to_bytes(value: &BencodeValue) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use crate::bencode::{BencodeValue, BencodeParserError, from_bytes, to_bytes};
+    use crate::bencode::{BencodeValue, BencodeParserError, from_bytes, to_bytes, BencodeParserResult};
     use nom::Err::{Failure};
     use nom::sequence::delimited;
     use indexmap::map::IndexMap;
+    use std::error::Error;
 
     #[test]
     fn parse_integer() {
@@ -293,5 +294,19 @@ mod tests {
 
         //then
         assert_eq!(result, "d3:bar4:spam3:fooi42ee".as_bytes().to_vec())
+    }
+
+    #[test]
+    fn serialize_complex() -> Result<(), Box<dyn Error>> {
+        //given
+        let bytes = include_bytes!("../resources/archlinux-2020.06.01-x86_64.iso.torrent");
+        let (_, input) = from_bytes(bytes)?;
+
+        //when
+        let result = to_bytes(&input);
+
+        //then
+        assert_eq!(bytes.to_vec(), result);
+        Ok(())
     }
 }
