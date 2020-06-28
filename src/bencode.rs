@@ -25,7 +25,7 @@ impl<'a> ParseError<&'a [u8]> for BencodeParserError<'a> {
     }
 }
 
-type BencodeParserResult<'a> = IResult<&'a [u8], BencodeValue, BencodeParserError<'a>>;
+type BencodeParserResult<'a> = IResult<&'a [u8], BencodeValue<'a>, BencodeParserError<'a>>;
 
 trait BencodeParser<'a> {
     fn parse(&self) -> BencodeParserResult<'a>;
@@ -46,11 +46,11 @@ pub fn from_bytes(input: &[u8]) -> BencodeParserResult {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum BencodeValue {
+pub enum BencodeValue<'a> {
     Integer(i64),
-    ByteString(Vec<u8>),
-    List(Vec<BencodeValue>),
-    Dict(Vec<(BencodeValue, BencodeValue)>),
+    ByteString(&'a [u8]),
+    List(Vec<BencodeValue<'a>>),
+    Dict(Vec<(BencodeValue<'a>, BencodeValue<'a>)>),
 }
 
 fn bytes_to_i64(bytes: &[u8]) -> Result<i64, Err<BencodeParserError>> {
@@ -70,11 +70,11 @@ fn parse_integer(input: &[u8]) -> BencodeParserResult {
 }
 
 fn parse_byte_string(input: &[u8]) -> BencodeParserResult {
-    let (input, (len, _)) = tuple((is_not(":"), tag(":")))(input)?;
+    let (input, (len, _)) = tuple((is_not(":ilde"), tag(":")))(input)?;
     let len = bytes_to_i64(len)?;
     if len > 0 {
         let (input, byte_string) = take(len as u64)(input)?;
-        Ok((input, BencodeValue::ByteString(byte_string.to_vec())))
+        Ok((input, BencodeValue::ByteString(byte_string)))
     } else {
         Err(Failure(BencodeParserError::InvalidByteString))?
     }
@@ -97,6 +97,7 @@ fn parse_dict(input: &[u8]) -> BencodeParserResult {
 mod tests {
     use crate::bencode::{BencodeValue, BencodeParserError, from_bytes};
     use nom::Err::{Failure};
+    use nom::sequence::delimited;
 
     #[test]
     fn parse_integer() {
@@ -119,7 +120,7 @@ mod tests {
         let result = from_bytes(input);
 
         //then
-        assert_eq!(result, Ok(("".as_bytes(), BencodeValue::ByteString("spam".as_bytes().to_vec()))))
+        assert_eq!(result, Ok(("".as_bytes(), BencodeValue::ByteString("spam".as_bytes()))))
     }
 
     #[test]
@@ -143,7 +144,7 @@ mod tests {
         let result = from_bytes(input);
 
         //then
-        let elem1 = BencodeValue::ByteString("spam".as_bytes().to_vec());
+        let elem1 = BencodeValue::ByteString("spam".as_bytes());
         let elem2 = BencodeValue::Integer(42i64);
         assert_eq!(result, Ok(("".as_bytes(), BencodeValue::List(vec![elem1, elem2]))))
     }
@@ -157,12 +158,27 @@ mod tests {
         let result = from_bytes(input);
 
         //then
-        let key1 = BencodeValue::ByteString("bar".as_bytes().to_vec());
-        let val1 = BencodeValue::ByteString("spam".as_bytes().to_vec());
+        let key1 = BencodeValue::ByteString("bar".as_bytes());
+        let val1 = BencodeValue::ByteString("spam".as_bytes());
 
-        let key2 = BencodeValue::ByteString("foo".as_bytes().to_vec());
+        let key2 = BencodeValue::ByteString("foo".as_bytes());
         let val2 = BencodeValue::Integer(42i64);
 
         assert_eq!(result, Ok(("".as_bytes(), BencodeValue::Dict(vec![(key1, val1), (key2, val2)]))))
+    }
+
+    #[test]
+    fn parse_complex() {
+        //given
+        let input = include_bytes!("../resources/archlinux-2020.06.01-x86_64.iso.torrent");
+
+        //when
+        let result = from_bytes(input);
+
+        //then
+        match result {
+            Ok(_) => debug_assert!(true, "correctly parsed"),
+            Err(err) => debug_assert!(false, "error: {}", err)
+        }
     }
 }
